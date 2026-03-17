@@ -1,7 +1,10 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Brain, Copy, Check, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { formatDate } from '../lib/utils';
+
+interface PreviousResponse { text: string; provider: string; timestamp: string; }
 
 interface ResponsePanelProps {
   currentResponse: string;
@@ -13,7 +16,18 @@ interface ResponsePanelProps {
 export default function ResponsePanel({ currentResponse, isStreaming, provider, latencyMs }: ResponsePanelProps) {
   const [copied, setCopied] = useState(false);
   const [showPrevious, setShowPrevious] = useState(false);
-  const previousResponses: Array<{ text: string; provider: string; timestamp: string }> = [];
+  const [previousResponses, setPreviousResponses] = useState<PreviousResponse[]>([]);
+  const prevResponseRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!isStreaming && currentResponse && currentResponse !== prevResponseRef.current) {
+      prevResponseRef.current = currentResponse;
+      setPreviousResponses(prev => [
+        ...prev,
+        { text: currentResponse, provider: provider ?? 'unknown', timestamp: formatDate(new Date()) },
+      ].slice(-10));
+    }
+  }, [isStreaming, currentResponse, provider]);
 
   const handleCopy = useCallback(async () => {
     if (!currentResponse) return;
