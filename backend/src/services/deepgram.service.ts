@@ -28,9 +28,8 @@ export function createDeepgramConnection(socket: Socket, sessionId: string): voi
     const alt = data.channel?.alternatives?.[0];
     if (!alt || !alt.transcript) return;
     const isInterim = data.is_final === false;
-    const speaker = data.channel?.alternatives?.[0]?.words?.[0]?.speaker !== undefined
-      ? `Speaker ${data.channel.alternatives[0].words[0].speaker}`
-      : undefined;
+    const speakerIndex = data.channel?.alternatives?.[0]?.words?.[0]?.speaker;
+    const speaker = speakerIndex !== undefined ? `Speaker ${speakerIndex}` : undefined;
     const event = {
       sessionId,
       text: alt.transcript,

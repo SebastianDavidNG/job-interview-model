@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+const MAX_TRANSCRIPTS = 100;
+
 interface SessionConfig {
   id: string;
   title: string;
@@ -57,9 +59,13 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   setSession: (session) => set({ session, aiProvider: session.aiProvider }),
   addTranscript: (transcript) => set((state) => {
     if (!transcript.isInterim) {
-      // Replace any interim entries and add the final one
-      const withoutInterims = state.transcripts.filter(t => !t.isInterim);
-      return { transcripts: [...withoutInterims, transcript].slice(-100) };
+      // Single pass: remove interim entries and enforce size limit
+      const result: TranscriptItem[] = [];
+      for (const t of state.transcripts) {
+        if (!t.isInterim) result.push(t);
+      }
+      result.push(transcript);
+      return { transcripts: result.length > MAX_TRANSCRIPTS ? result.slice(-MAX_TRANSCRIPTS) : result };
     }
     // For interim, replace existing entry with same id or append
     const existing = state.transcripts.findIndex(t => t.id === transcript.id);
@@ -70,7 +76,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
     }
     // Replace previous interim with the new one (keep only one pending interim)
     const withoutOldInterim = state.transcripts.filter(t => !t.isInterim);
-    return { transcripts: [...withoutOldInterim, transcript].slice(-100) };
+    return { transcripts: [...withoutOldInterim, transcript].slice(-MAX_TRANSCRIPTS) };
   }),
   setCurrentQuestion: (currentQuestion) => set({ currentQuestion }),
   setCurrentResponse: (currentResponse) => set({ currentResponse }),

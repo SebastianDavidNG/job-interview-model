@@ -6,6 +6,8 @@ import { formatDate } from '../lib/utils';
 
 interface PreviousResponse { text: string; provider: string; timestamp: string; }
 
+const MAX_PREVIOUS_RESPONSES = 10;
+
 interface ResponsePanelProps {
   currentResponse: string;
   isStreaming: boolean;
@@ -25,7 +27,7 @@ export default function ResponsePanel({ currentResponse, isStreaming, provider, 
       setPreviousResponses(prev => [
         ...prev,
         { text: currentResponse, provider: provider ?? 'unknown', timestamp: formatDate(new Date()) },
-      ].slice(-10));
+      ].slice(-MAX_PREVIOUS_RESPONSES));
     }
   }, [isStreaming, currentResponse, provider]);
 

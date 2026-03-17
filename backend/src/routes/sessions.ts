@@ -19,7 +19,7 @@ router.post('/', async (req: Request, res: Response) => {
     const data = createSessionSchema.parse(req.body);
     const session = await prisma.session.create({
       data: {
-        title: data.title ?? 'Interview Session',
+        title: data.title,
         role: data.role,
         company: data.company,
         jobDesc: data.jobDesc,

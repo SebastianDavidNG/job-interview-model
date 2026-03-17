@@ -66,7 +66,10 @@ export async function getSessionContext(sessionId: string): Promise<SessionConte
 export async function addTranscript(sessionId: string, text: string): Promise<string[]> {
   const key = `session:${sessionId}:transcripts`;
   const existing = await get(key);
-  const arr: string[] = existing ? JSON.parse(existing) : [];
+  let arr: string[] = [];
+  if (existing) {
+    try { arr = JSON.parse(existing); } catch { arr = []; }
+  }
   arr.push(text);
   const trimmed = arr.slice(-10);
   await set(key, JSON.stringify(trimmed), SESSION_TTL);
