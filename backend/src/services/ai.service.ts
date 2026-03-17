@@ -25,7 +25,7 @@ ${context.recentTranscripts.slice(-5).map((t, i) => `[${i + 1}] ${t}`).join('\n'
 async function generateWithGroq(question: string, context: SessionContext, socket: Socket): Promise<string> {
   const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const stream = await client.chat.completions.create({
-    model: 'llama3-70b-8192',
+    model: process.env.GROQ_MODEL ?? 'llama3-70b-8192',
     messages: [
       { role: 'system', content: buildSystemPrompt(context) },
       { role: 'user', content: question },

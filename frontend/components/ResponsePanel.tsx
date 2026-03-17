@@ -26,7 +26,7 @@ export default function ResponsePanel({ currentResponse, isStreaming, provider, 
       prevResponseRef.current = currentResponse;
       setPreviousResponses(prev => [
         ...prev,
-        { text: currentResponse, provider: provider ?? 'unknown', timestamp: formatDate(new Date()) },
+        { text: currentResponse, provider: provider ?? 'unspecified', timestamp: formatDate(new Date()) },
       ].slice(-MAX_PREVIOUS_RESPONSES));
     }
   }, [isStreaming, currentResponse, provider]);
