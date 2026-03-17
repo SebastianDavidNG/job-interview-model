@@ -77,7 +77,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // Persist asynchronously; errors are logged but don't fail the response
       prisma.response.create({
         data: { sessionId, question, answer, aiProvider: context.session.aiProvider, latencyMs },
-      }).catch((e) => console.error('Failed to persist response:', e));
+      }).catch((e) => console.error('Failed to persist response for session %s, question: %s —', sessionId, question, e));
     } catch (err) {
       console.error('request-ai-response error:', err);
       socket.emit('error', { message: 'Failed to generate AI response' });

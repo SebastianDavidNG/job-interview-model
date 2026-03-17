@@ -50,6 +50,11 @@ export default function AudioVisualizer({ audioData, isActive, width = 300, heig
       animFrameRef.current = requestAnimationFrame(draw);
     };
 
+    if (!isActive) {
+      // Draw the flat idle line once; no animation loop needed when inactive
+      draw();
+      return;
+    }
     animFrameRef.current = requestAnimationFrame(draw);
     return () => { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); };
   }, [audioData, isActive, width, height]);
