@@ -70,7 +70,7 @@ export default function InterviewPage() {
       if (timerRef.current) clearInterval(timerRef.current);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isRecording, isPaused]);
+  }, [isRecording, isPaused, incrementElapsed]);
 
   const handleStartRecording = useCallback(async () => {
     if (!socket || !isConnected) return;
