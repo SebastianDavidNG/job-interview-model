@@ -62,7 +62,15 @@ export function createDeepgramConnection(socket: Socket, sessionId: string): voi
 export function sendAudioChunk(socketId: string, audioBuffer: Buffer): void {
   const connection = connections.get(socketId);
   if (connection) {
-    try { connection.send(audioBuffer); } catch (err) { console.error('Error sending audio chunk:', err); }
+    try {
+      const arrayBuffer = audioBuffer.buffer.slice(
+        audioBuffer.byteOffset,
+        audioBuffer.byteOffset + audioBuffer.byteLength,
+      ) as ArrayBuffer;
+      connection.send(arrayBuffer);
+    } catch (err) {
+      console.error('Error sending audio chunk:', err);
+    }
   }
 }
 

@@ -43,8 +43,9 @@ export function useAudioCapture(socket: Socket | null, sessionId: string) {
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } });
-      } catch {
+      } catch (sampleRateErr) {
         // sampleRate constraint not supported in all browsers; retry with basic audio
+        console.warn('getUserMedia with sampleRate constraint failed, retrying without:', sampleRateErr);
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       streamRef.current = stream;
