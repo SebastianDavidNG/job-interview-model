@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>InterviewPilot</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        background: #0a0a0f;
+        color: #e8f5e9;
+        min-width: 220px;
+      }
+      button {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: none;
+        background: #00e5ff;
+        color: #001e2b;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 style="font-size:14px;margin:0 0 8px;">InterviewPilot (Local)</h1>
+    <p style="font-size:12px;margin:0 0 12px;color:#b0bec5;">
+      Haz clic en el icono de la extensión para iniciar/detener la captura del audio de la pestaña.
+    </p>
+    <button id="toggle">Ver logs en background</button>
+    <script>
+      document.getElementById('toggle').addEventListener('click', () => {
+        alert('La captura se controla haciendo clic en el icono de la extensión.\n\nRevisa la consola del background para logs.');
+      });
+    </script>
+  </body>
+</html>
+

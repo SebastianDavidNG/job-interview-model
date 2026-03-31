@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "InterviewPilot Local - Audio Capture",
+  "version": "0.1.0",
+  "description": "Captura audio de la pestaña de videollamada y lo envía al servidor local de InterviewPilot.",
+  "permissions": ["tabCapture", "scripting", "activeTab"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "InterviewPilot"
+  }
+}
