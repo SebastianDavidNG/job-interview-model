@@ -16,3 +16,10 @@ server/public/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local workspace and planning docs
+.cursor/
+PROJECT_CONTEXT.md
+
+# OS metadata
+.DS_Store
