@@ -5,7 +5,7 @@ import path from 'path';
 import cors from 'cors';
 import { Server as SocketIOServer } from 'socket.io';
 import Groq from 'groq-sdk';
-import { streamGroqResponse, type SessionConfig } from './ai/groq';
+import { streamGroqResponse, type SessionConfig, resolveOutputLang } from './ai/groq';
 import 'dotenv/config';
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
@@ -16,6 +16,95 @@ const server = http.createServer(app);
 
 // En memoria (en producción usar Redis o DB)
 const sessionStore = new Map<string, SessionConfig>();
+
+const VALID_LANG = new Set(['es', 'en', 'pt', 'fr', 'de']);
+
+type AiRequestPayload = {
+  text: string;
+  sessionId?: string;
+  responseLanguage?: string;
+  uiLocale?: string;
+  interviewType?: string;
+  interviewLanguage?: string;
+};
+
+/** Combines stored session with language hints from the client (so answers match wizard even after server restart). */
+function mergeSessionConfig(sessionId: string | undefined, p: AiRequestPayload): SessionConfig | null {
+  const stored = sessionId ? sessionStore.get(sessionId) : undefined;
+  const patch: Partial<SessionConfig> = {};
+  if (p.responseLanguage && VALID_LANG.has(p.responseLanguage)) patch.responseLanguage = p.responseLanguage;
+  if (p.uiLocale && VALID_LANG.has(p.uiLocale)) patch.uiLocale = p.uiLocale;
+  if (p.interviewType && typeof p.interviewType === 'string') patch.interviewType = p.interviewType;
+  if (p.interviewLanguage && typeof p.interviewLanguage === 'string') patch.interviewLanguage = p.interviewLanguage;
+  if (stored) return { ...stored, ...patch };
+  if (Object.keys(patch).length > 0) return patch as SessionConfig;
+  return null;
+}
+
+function demoTokensForLang(lang: string): string[] {
+  const L = VALID_LANG.has(lang) ? lang : 'es';
+  const demos: Record<string, string[]> = {
+    es: [
+      'Demo: ',
+      'respuesta ',
+      'desde ',
+      'el ',
+      'servidor. ',
+      'Configura ',
+      'GROQ_API_KEY ',
+      'para ',
+      'IA ',
+      'real.',
+    ],
+    en: [
+      'Demo: ',
+      'response ',
+      'from ',
+      'the ',
+      'server. ',
+      'Set ',
+      'GROQ_API_KEY ',
+      'for ',
+      'real ',
+      'AI.',
+    ],
+    pt: [
+      'Demo: ',
+      'resposta ',
+      'do ',
+      'servidor. ',
+      'Configure ',
+      'GROQ_API_KEY ',
+      'para ',
+      'IA ',
+      'real.',
+    ],
+    fr: [
+      'Démo : ',
+      'réponse ',
+      'du ',
+      'serveur. ',
+      'Configurez ',
+      'GROQ_API_KEY ',
+      'pour ',
+      'une ',
+      'IA ',
+      'réelle.',
+    ],
+    de: [
+      'Demo: ',
+      'Antwort ',
+      'vom ',
+      'Server. ',
+      'Setze ',
+      'GROQ_API_KEY ',
+      'für ',
+      'echte ',
+      'KI.',
+    ],
+  };
+  return demos[L] ?? demos.es;
+}
 
 const io = new SocketIOServer(server, {
   cors: {
@@ -112,10 +201,16 @@ io.on('connection', (socket) => {
   });
 
   // Canal de streaming de tokens IA hacia el cliente (Groq real o demo)
-  socket.on('ai_request', async (payload: { text: string; sessionId?: string }) => {
+  socket.on('ai_request', async (payload: AiRequestPayload) => {
     const question = payload?.text?.trim() || 'Pregunta de prueba';
     const sessionId = payload?.sessionId;
-    console.log('AI request:', question.slice(0, 80), sessionId ? `(session: ${sessionId})` : '');
+    const config = mergeSessionConfig(sessionId, payload ?? { text: question });
+    console.log(
+      'AI request:',
+      question.slice(0, 80),
+      sessionId ? `(session: ${sessionId})` : '',
+      config ? `[lang=${resolveOutputLang(config)}]` : ''
+    );
 
     // Quien hace la petición siempre recibe por socket; el resto de la sala (ej. viewer) por room
     const send = (event: string, data: unknown) => {
@@ -127,7 +222,6 @@ io.on('connection', (socket) => {
 
     if (process.env.GROQ_API_KEY) {
       try {
-        const config = sessionId ? (sessionStore.get(sessionId) as SessionConfig | undefined) ?? null : null;
         const fullResponse = await streamGroqResponse(question, config, (token) => {
           send('ai_token', { token });
         });
@@ -138,8 +232,7 @@ io.on('connection', (socket) => {
         send('ai_error', { message });
       }
     } else {
-      // Demo cuando no hay API key
-      const tokens = ['Demo ', 'response ', 'desde ', 'el ', 'servidor. ', 'Configura ', 'GROQ_API_KEY ', 'para ', 'usar ', 'IA ', 'real.'];
+      const tokens = demoTokensForLang(config ? resolveOutputLang(config) : 'es');
       for (const t of tokens) {
         send('ai_token', { token: t });
       }

@@ -41,8 +41,16 @@ export const LiveSessionPanel: React.FC = () => {
   const [interviewLanguage, setInterviewLanguage] = useState<string | undefined>(undefined);
   const [responseLanguage, setResponseLanguage] = useState<string | undefined>(undefined);
   const [uiLocale, setUiLocale] = useState<string | undefined>(undefined);
+  const [sessionInterviewType, setSessionInterviewType] = useState<string>('mixed');
 
   const socketRef = useRef<Socket | null>(null);
+  /** Always current for socket emits (avoids stale closures in pedirGuia). */
+  const aiSessionCtxRef = useRef({
+    responseLanguage: undefined as string | undefined,
+    uiLocale: undefined as string | undefined,
+    interviewLanguage: undefined as string | undefined,
+    interviewType: 'mixed' as string,
+  });
   const liveTranscriptRef = useRef('');
   const lastEmitRef = useRef(0);
   const lastAutoGuideRef = useRef(0);
@@ -61,6 +69,7 @@ export const LiveSessionPanel: React.FC = () => {
         uiLocale?: string;
       };
       setLiveCoding(cfg.interviewType === 'live_coding');
+      setSessionInterviewType(cfg.interviewType ?? 'mixed');
       setInterviewLanguage(cfg.interviewLanguage);
       setResponseLanguage(cfg.responseLanguage);
       setUiLocale(cfg.uiLocale);
@@ -71,10 +80,23 @@ export const LiveSessionPanel: React.FC = () => {
     }
   }, []);
 
+  /** Prefer answer language so UI (e.g. guide title) matches Groq output; then UI locale. */
   const simLang: SimLang = useMemo(() => {
+    if (responseLanguage && SIM_LANGS.includes(responseLanguage as SimLang)) {
+      return responseLanguage as SimLang;
+    }
     if (uiLocale && SIM_LANGS.includes(uiLocale as SimLang)) return uiLocale as SimLang;
     return simulatedQuestionLanguage(interviewLanguage, responseLanguage);
-  }, [uiLocale, interviewLanguage, responseLanguage]);
+  }, [responseLanguage, uiLocale, interviewLanguage]);
+
+  useEffect(() => {
+    aiSessionCtxRef.current = {
+      responseLanguage,
+      uiLocale,
+      interviewLanguage,
+      interviewType: sessionInterviewType,
+    };
+  }, [responseLanguage, uiLocale, interviewLanguage, sessionInterviewType]);
 
   const preguntasSimuladas = useMemo(
     () => (liveCoding ? PREGUNTAS_LIVE_CODING[simLang] : PREGUNTAS_DEMO[simLang]),
@@ -117,6 +139,7 @@ export const LiveSessionPanel: React.FC = () => {
       socketRef.current?.emit('ai_request', {
         text: trimmed,
         sessionId: sessionId ?? undefined,
+        ...aiSessionCtxRef.current,
       });
     },
     [sessionId]
@@ -165,7 +188,9 @@ export const LiveSessionPanel: React.FC = () => {
       if (sessionId) socket.emit('join_session', { sessionId });
     });
     socket.on('session_ready', (payload: { interviewType?: string }) => {
-      setLiveCoding(payload?.interviewType === 'live_coding');
+      const t = payload?.interviewType ?? 'mixed';
+      setLiveCoding(t === 'live_coding');
+      setSessionInterviewType(t);
     });
     socket.on('disconnect', () => setStatus('disconnected'));
     socket.on('audio_chunk_ack', () => {});
@@ -217,6 +242,7 @@ export const LiveSessionPanel: React.FC = () => {
     socketRef.current?.emit('ai_request', {
       text: pregunta,
       sessionId: sessionId ?? undefined,
+      ...aiSessionCtxRef.current,
     });
   };
 

@@ -5,6 +5,33 @@ import { STEALTH_VIEWER_UI, viewerUiLanguage } from './sessionUiI18n';
 
 type HistoryEntry = { question: string; response: string };
 
+/** Same device may have wizard config; helps AI language when secondary tab has no server session merge. */
+function aiContextFromStorage(): {
+  responseLanguage?: string;
+  uiLocale?: string;
+  interviewLanguage?: string;
+  interviewType?: string;
+} {
+  try {
+    const raw = localStorage.getItem('ip_config');
+    if (!raw) return {};
+    const cfg = JSON.parse(raw) as {
+      responseLanguage?: string;
+      uiLocale?: string;
+      interviewLanguage?: string;
+      interviewType?: string;
+    };
+    return {
+      responseLanguage: cfg.responseLanguage,
+      uiLocale: cfg.uiLocale,
+      interviewLanguage: cfg.interviewLanguage,
+      interviewType: cfg.interviewType,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export const StealthViewer: React.FC = () => {
   const vt = STEALTH_VIEWER_UI[viewerUiLanguage()];
 
@@ -23,12 +50,18 @@ export const StealthViewer: React.FC = () => {
   const [fontLevel, setFontLevel] = useState(1); // 0 small, 1 normal, 2 large, 3 xl
   const lastPromptRef = useRef('');
   const transcriptRef = useRef(transcript);
+  const interviewTypeRef = useRef(interviewType);
+  const sessionTypeSyncedRef = useRef(false);
 
   const liveCoding = interviewType === 'live_coding';
 
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
+
+  useEffect(() => {
+    interviewTypeRef.current = interviewType;
+  }, [interviewType]);
 
   useEffect(() => {
     if (mode !== 'active') return;
@@ -45,6 +78,7 @@ export const StealthViewer: React.FC = () => {
 
   const connect = (id: string) => {
     if (!id) return;
+    sessionTypeSyncedRef.current = false;
     const v = STEALTH_VIEWER_UI[viewerUiLanguage()];
     setSessionId(id);
     setStatusText(v.connecting);
@@ -57,7 +91,10 @@ export const StealthViewer: React.FC = () => {
       setStatusText(`${v.connectedPrefix} ${id}`);
     });
     s.on('session_ready', (payload: { interviewType?: string }) => {
-      setInterviewType(payload?.interviewType ?? 'mixed');
+      const t = payload?.interviewType ?? 'mixed';
+      interviewTypeRef.current = t;
+      sessionTypeSyncedRef.current = true;
+      setInterviewType(t);
     });
     s.on('connect_error', () => {
       setStatusText(STEALTH_VIEWER_UI[viewerUiLanguage()].connectError);
@@ -73,7 +110,15 @@ export const StealthViewer: React.FC = () => {
       setTranscript(q);
       setIsQuestion(true);
       startGenerating();
-      s.emit('ai_request', { text: q, sessionId: id });
+      const hints = aiContextFromStorage();
+      s.emit('ai_request', {
+        text: q,
+        sessionId: id,
+        ...hints,
+        interviewType: sessionTypeSyncedRef.current
+          ? interviewTypeRef.current
+          : hints.interviewType ?? interviewTypeRef.current,
+      });
     });
     s.on('ai_generating', () => {
       lastPromptRef.current = transcriptRef.current;
