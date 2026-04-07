@@ -1,18 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { SERVER_URL } from '../lib/config';
+import { STEALTH_VIEWER_UI, viewerUiLanguage } from './sessionUiI18n';
 
 type HistoryEntry = { question: string; response: string };
 
 export const StealthViewer: React.FC = () => {
+  const vt = STEALTH_VIEWER_UI[viewerUiLanguage()];
+
   const [sessionId, setSessionId] = useState('');
   const [interviewType, setInterviewType] = useState<string>('mixed');
   const [mode, setMode] = useState<'connect' | 'active'>('connect');
-  const [statusText, setStatusText] = useState('Listo para conectar');
+  const [statusText, setStatusText] = useState(() => STEALTH_VIEWER_UI[viewerUiLanguage()].readyToConnect);
   const [statusDot, setStatusDot] = useState<'idle' | 'connected' | 'generating'>('idle');
   const [seconds, setSeconds] = useState(0);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [transcript, setTranscript] = useState('Esperando audio de la entrevista...');
+  const [transcript, setTranscript] = useState(() => STEALTH_VIEWER_UI[viewerUiLanguage()].waitingTranscript);
   const [isQuestion, setIsQuestion] = useState(false);
   const [response, setResponse] = useState('');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -42,28 +45,30 @@ export const StealthViewer: React.FC = () => {
 
   const connect = (id: string) => {
     if (!id) return;
+    const v = STEALTH_VIEWER_UI[viewerUiLanguage()];
     setSessionId(id);
-    setStatusText('Conectando...');
+    setStatusText(v.connecting);
     const s = io(SERVER_URL, { timeout: 5000 });
     setSocket(s);
     s.on('connect', () => {
       s.emit('join_session', { sessionId: id });
       setMode('active');
       setStatusDot('connected');
-      setStatusText(`Conectado · ${id}`);
+      setStatusText(`${v.connectedPrefix} ${id}`);
     });
     s.on('session_ready', (payload: { interviewType?: string }) => {
       setInterviewType(payload?.interviewType ?? 'mixed');
     });
     s.on('connect_error', () => {
-      setStatusText('✗ No se pudo conectar — ¿server corriendo?');
+      setStatusText(STEALTH_VIEWER_UI[viewerUiLanguage()].connectError);
     });
     s.on('transcript_partial', ({ text }: { text: string }) => {
-      setTranscript(text || 'Escuchando...');
+      const vv = STEALTH_VIEWER_UI[viewerUiLanguage()];
+      setTranscript(text || vv.listeningProgress);
       setIsQuestion(false);
     });
     s.on('question_detected', ({ text }: { text: string }) => {
-      const q = (text || '').trim() || 'Pregunta de la entrevista';
+      const q = (text || '').trim() || STEALTH_VIEWER_UI[viewerUiLanguage()].questionFallback;
       lastPromptRef.current = q;
       setTranscript(q);
       setIsQuestion(true);
@@ -76,8 +81,9 @@ export const StealthViewer: React.FC = () => {
     });
     s.on('ai_error', (payload: { message?: string }) => {
       setStatusDot('connected');
-      setStatusText(`Conectado · ${id}`);
-      const msg = payload?.message ?? 'Error al generar';
+      const vv = STEALTH_VIEWER_UI[viewerUiLanguage()];
+      setStatusText(`${vv.connectedPrefix} ${id}`);
+      const msg = payload?.message ?? vv.aiErrorGeneric;
       setResponse((prev) => (prev ? prev + '\n\n⚠ ' : '') + msg);
     });
     s.on('ai_token', ({ token }: { token: string }) => {
@@ -90,40 +96,36 @@ export const StealthViewer: React.FC = () => {
 
   const startGenerating = () => {
     setStatusDot('generating');
-    setStatusText('Generando respuesta...');
+    setStatusText(STEALTH_VIEWER_UI[viewerUiLanguage()].generating);
     setResponse('');
   };
 
   const finishGenerating = (full: string) => {
     setStatusDot('connected');
-    setStatusText(`Conectado · ${sessionId}`);
+    const vv = STEALTH_VIEWER_UI[viewerUiLanguage()];
+    setStatusText(`${vv.connectedPrefix} ${sessionId}`);
     setResponse(full);
     setHistory((prev) => [{ question: lastPromptRef.current || transcript, response: full }, ...prev]);
   };
 
   const startDemo = () => {
+    const v = STEALTH_VIEWER_UI[viewerUiLanguage()];
     setSessionId('DEMO-SESSION');
     setInterviewType('mixed');
     setMode('active');
     setStatusDot('connected');
-    setStatusText('Conectado · DEMO-SESSION');
+    setStatusText(`${v.connectedPrefix} DEMO-SESSION`);
     setSeconds(0);
-    setTimeout(
-      () =>
-        simulateQuestion(
-          '¿Puedes contarme sobre una situación en la que tuviste que manejar un stakeholder difícil?'
-        ),
-      1500
-    );
+    setTimeout(() => simulateQuestion(v.demoQuestion1), 1500);
   };
 
   const simulateQuestion = (q: string) => {
+    const v = STEALTH_VIEWER_UI[viewerUiLanguage()];
     lastPromptRef.current = q;
     setTranscript(q);
     setIsQuestion(true);
     startGenerating();
-    const demo =
-      'En mi rol anterior tuve un stakeholder con expectativas cambiantes sobre el alcance del proyecto. Lo primero que hice fue clarificar objetivos y restricciones en una reunión uno a uno, y luego acordamos un backlog priorizado visible para todo el equipo. Esto redujo las solicitudes ad hoc en más de un 60% y nos permitió entregar el MVP en la fecha comprometida sin quemar al equipo.';
+    const demo = v.demoAnswer1;
     const words = demo.split(' ');
     let i = 0;
     const interval = setInterval(() => {
@@ -141,7 +143,7 @@ export const StealthViewer: React.FC = () => {
     if (socket && sessionId) {
       socket.emit('trigger_manual', { sessionId, text: transcript });
     } else {
-      simulateQuestion('¿Cuál dirías que es tu mayor fortaleza como profesional?');
+      simulateQuestion(STEALTH_VIEWER_UI[viewerUiLanguage()].demoQuestionManual);
     }
   };
 
@@ -203,13 +205,13 @@ export const StealthViewer: React.FC = () => {
             marginBottom: 16
           }}
         >
-          Dispositivo
+          {vt.connectTitle1}
           <br />
-          secundario
+          {vt.connectTitle2}
         </h1>
 
         <p style={{ fontSize: 12, color: '#4a6b55', lineHeight: 1.7, maxWidth: 260, marginBottom: 24 }}>
-          Ingresa el código de sesión que aparece en tu computador, o activa el modo demo.
+          {vt.connectSubtitle}
         </p>
 
         <div style={{ width: '100%', maxWidth: 280, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -249,19 +251,19 @@ export const StealthViewer: React.FC = () => {
               cursor: 'pointer'
             }}
           >
-            Conectar →
+            {vt.connectButton}
           </button>
           <span style={{ fontSize: 11, color: statusText.startsWith('✗') ? '#e05252' : '#1f2e24' }}>{statusText}</span>
         </div>
 
         <div style={{ marginTop: 24, fontSize: 10, color: '#1f2e24', letterSpacing: '0.08em' }}>
-          ¿Sin código?{' '}
+          {vt.noCodePrompt}{' '}
           <button
             type="button"
             onClick={startDemo}
             style={{ background: 'none', border: 'none', color: '#4a6b55', textDecoration: 'underline', cursor: 'pointer' }}
           >
-            Entrar en modo demo
+            {vt.demoModeLink}
           </button>
         </div>
       </div>
@@ -338,7 +340,7 @@ export const StealthViewer: React.FC = () => {
             marginBottom: 5
           }}
         >
-          Escuchando
+          {vt.listeningLabel}
         </span>
         <p
           style={{
@@ -393,9 +395,7 @@ export const StealthViewer: React.FC = () => {
                 lineHeight: 1.6
               }}
             >
-              {liveCoding
-                ? 'Aquí verás ENTENDER, DECIR, PASOS, CÓDIGO y TRAMPA cuando haya un enunciado o pregunta.'
-                : 'La guía aparecerá aquí cuando el entrevistador haga una pregunta.'}
+              {liveCoding ? vt.emptyStateCoding : vt.emptyStateGeneral}
             </p>
           </div>
         )}
@@ -414,7 +414,7 @@ export const StealthViewer: React.FC = () => {
                 gap: 8
               }}
             >
-              {liveCoding ? 'guía live coding' : 'respuesta sugerida'}
+              {liveCoding ? vt.labelSuggestedCoding : vt.labelSuggestedGeneral}
               <span style={{ flex: 1, height: 1, background: '#1a1a1a' }} />
             </div>
             <div
@@ -442,13 +442,13 @@ export const StealthViewer: React.FC = () => {
       >
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="button" onClick={manualTrigger} style={actionBtn(true)}>
-            ⚡ Ahora
+            {vt.btnNow}
           </button>
           <button type="button" onClick={regenerate} style={actionBtn(false)}>
-            ↺ Otra
+            {vt.btnOther}
           </button>
           <button type="button" onClick={() => setHistoryOpen(true)} style={actionBtn(false)}>
-            📋 Historial
+            {vt.btnHistory}
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -511,7 +511,7 @@ export const StealthViewer: React.FC = () => {
                 color: '#1f2e24'
               }}
             >
-              <span>Preguntas anteriores</span>
+              <span>{vt.historyTitle}</span>
               <button
                 type="button"
                 onClick={() => setHistoryOpen(false)}
@@ -523,7 +523,7 @@ export const StealthViewer: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 20 }}>
               {history.length === 0 && (
                 <div style={{ fontSize: 12, color: '#1f2e24', textAlign: 'center', padding: '20px 0' }}>
-                  Sin historial aún
+                  {vt.historyEmpty}
                 </div>
               )}
               {history.map((h, idx) => (

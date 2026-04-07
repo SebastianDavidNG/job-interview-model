@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
@@ -7,21 +7,17 @@ import {
   useLiveSpeechRecognition,
 } from '../hooks/useLiveSpeechRecognition';
 import { SERVER_URL } from '../lib/config';
-
-const PREGUNTAS_DEMO = [
-  'Cuéntame sobre ti y tu experiencia profesional.',
-  '¿Por qué te interesa este rol y nuestra empresa?',
-  'Describe un proyecto difícil en el que hayas trabajado y cómo lo resolviste.',
-  '¿Cuáles son tus fortalezas y áreas de mejora?',
-  '¿Dónde te ves en 5 años?',
-];
-
-const PREGUNTAS_LIVE_CODING = [
-  'Implementa una función que invierta un string en O(n) tiempo.',
-  'Dado un array de enteros, encuentra el par que suma un target. ¿Qué estructura usarías?',
-  'Explica cómo evitarías un memory leak en un useEffect de React.',
-  'Implementa un debounce: describe la firma y el comportamiento esperado.',
-];
+import {
+  ENUNCIADO_EXTRA_LIVE,
+  PREGUNTA_EXTRA_DEMO,
+  PREGUNTAS_DEMO,
+  PREGUNTAS_LIVE_CODING,
+  SIM_LANGS,
+  simulatedQuestionLanguage,
+  UI_SIMULATE,
+  type SimLang,
+} from './simulatedQuestions';
+import { LIVE_SESSION_UI } from './sessionUiI18n';
 
 function looksLikeCodingOrQuestion(s: string): boolean {
   if (/\?/.test(s)) return true;
@@ -42,6 +38,9 @@ export const LiveSessionPanel: React.FC = () => {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [speechLang, setSpeechLang] = useState('es-ES');
+  const [interviewLanguage, setInterviewLanguage] = useState<string | undefined>(undefined);
+  const [responseLanguage, setResponseLanguage] = useState<string | undefined>(undefined);
+  const [uiLocale, setUiLocale] = useState<string | undefined>(undefined);
 
   const socketRef = useRef<Socket | null>(null);
   const liveTranscriptRef = useRef('');
@@ -55,14 +54,43 @@ export const LiveSessionPanel: React.FC = () => {
     try {
       const raw = localStorage.getItem('ip_config');
       if (!raw) return;
-      const cfg = JSON.parse(raw) as { interviewType?: string; interviewLanguage?: string };
+      const cfg = JSON.parse(raw) as {
+        interviewType?: string;
+        interviewLanguage?: string;
+        responseLanguage?: string;
+        uiLocale?: string;
+      };
       setLiveCoding(cfg.interviewType === 'live_coding');
+      setInterviewLanguage(cfg.interviewLanguage);
+      setResponseLanguage(cfg.responseLanguage);
+      setUiLocale(cfg.uiLocale);
       setSpeechLang(speechLocaleFromInterviewLanguage(cfg.interviewLanguage));
       if (cfg.interviewType === 'live_coding') setAutoGuide(true);
     } catch {
       /* ignore */
     }
   }, []);
+
+  const simLang: SimLang = useMemo(() => {
+    if (uiLocale && SIM_LANGS.includes(uiLocale as SimLang)) return uiLocale as SimLang;
+    return simulatedQuestionLanguage(interviewLanguage, responseLanguage);
+  }, [uiLocale, interviewLanguage, responseLanguage]);
+
+  const preguntasSimuladas = useMemo(
+    () => (liveCoding ? PREGUNTAS_LIVE_CODING[simLang] : PREGUNTAS_DEMO[simLang]),
+    [liveCoding, simLang]
+  );
+
+  const uiSim = UI_SIMULATE[simLang];
+  const t = useMemo(() => LIVE_SESSION_UI[simLang], [simLang]);
+  const simLangRef = useRef(simLang);
+  simLangRef.current = simLang;
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('lang', simLang);
+    }
+  }, [simLang]);
 
   const emitTranscriptThrottled = useCallback(
     (text: string) => {
@@ -80,7 +108,7 @@ export const LiveSessionPanel: React.FC = () => {
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) {
-        setSpeechError('No hay texto transcrito todavía. Activa el micrófono o espera a que se escuche al entrevistador.');
+        setSpeechError(LIVE_SESSION_UI[simLangRef.current].emptyTranscriptError);
         return;
       }
       setSpeechError(null);
@@ -159,10 +187,11 @@ export const LiveSessionPanel: React.FC = () => {
     });
     socket.on('ai_error', (payload: unknown) => {
       setGenerating(false);
+      const fallback = LIVE_SESSION_UI[simLangRef.current].aiErrorFallback;
       const msg =
         typeof payload === 'object' && payload && 'message' in (payload as Record<string, unknown>)
           ? (payload as { message: string }).message
-          : 'Error al generar la respuesta';
+          : fallback;
       setAiText((prev) => prev + '\n\n⚠ ' + msg);
     });
     socket.on('question_detected', ({ text }: { text: string }) => {
@@ -203,12 +232,17 @@ export const LiveSessionPanel: React.FC = () => {
     >
       <header style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <span style={{ marginRight: 8 }}>🔴 EN VIVO</span>
+          <span style={{ marginRight: 8 }}>{t.liveBadge}</span>
           <strong>InterviewPilot</strong>
         </div>
         <div style={{ fontSize: 14, color: '#B0BEC5' }}>
-          Estado: {micOn && status === 'connected' ? 'escuchando' : status}
-          {generating && <span style={{ marginLeft: 8, color: '#ffd700' }}>· generando guía…</span>}
+          {t.statusPrefix}{' '}
+          {micOn && status === 'connected'
+            ? t.statusListening
+            : status === 'connected'
+              ? t.statusConnected
+              : t.statusDisconnected}
+          {generating && <span style={{ marginLeft: 8, color: '#ffd700' }}>{t.generatingGuide}</span>}
           {sessionId && (
             <span style={{ marginLeft: 8, fontSize: 12, color: '#6a8f78' }}>· {sessionId}</span>
           )}
@@ -225,18 +259,12 @@ export const LiveSessionPanel: React.FC = () => {
         }}
       >
         <h3 style={{ fontSize: 11, color: '#00d97e', letterSpacing: '0.1em', marginBottom: 8, textTransform: 'uppercase' }}>
-          Prueba de codificación en tiempo real
+          {liveCoding ? t.howToTitleLiveCoding : t.howToTitleInterview}
         </h3>
         <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#B0BEC5', lineHeight: 1.8 }}>
-          <li>
-            Pulsa <strong style={{ color: '#E8F5E9' }}>Activar micrófono</strong> para transcribir lo que suena en tu entorno (ideal: auriculares y audio de la videollamada por el mismo PC).
-          </li>
-          <li>
-            Pulsa <strong style={{ color: '#00E5FF' }}>Pedir guía</strong> cuando quieras que la IA analice lo último escuchado, o activa <strong>Auto tras pausa</strong> para que, tras ~3 s de silencio, intente una guía si detecta un enunciado o pregunta.
-          </li>
-          <li>
-            Abre <strong style={{ color: '#E8F5E9' }}>/viewer</strong> en el móvil con el mismo código de sesión para leer la guía discretamente.
-          </li>
+          <li>{t.howToStep1}</li>
+          <li>{t.howToStep2}</li>
+          <li>{t.howToStep3}</li>
         </ol>
       </section>
 
@@ -250,11 +278,11 @@ export const LiveSessionPanel: React.FC = () => {
         }}
       >
         <h2 style={{ fontSize: 11, color: '#6ab0f5', letterSpacing: '0.08em', marginBottom: 12, textTransform: 'uppercase' }}>
-          Micrófono y transcripción
+          {t.micSectionTitle}
         </h2>
         {!speechOk && (
           <p style={{ fontSize: 13, color: '#e05252', marginBottom: 12 }}>
-            Tu navegador no expone reconocimiento de voz. Usa <strong>Chrome</strong> o <strong>Edge</strong> en el escritorio, o usa los botones de simulación abajo.
+            {t.speechNotSupported}
           </p>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
@@ -277,7 +305,7 @@ export const LiveSessionPanel: React.FC = () => {
               opacity: speechOk && status === 'connected' ? 1 : 0.5,
             }}
           >
-            {micOn ? '⏹ Detener micrófono' : '🎤 Activar micrófono'}
+            {micOn ? t.micOn : t.micOff}
           </button>
           <button
             type="button"
@@ -295,11 +323,11 @@ export const LiveSessionPanel: React.FC = () => {
               opacity: generating ? 0.7 : 1,
             }}
           >
-            ⚡ Pedir guía ahora
+            {t.askGuideNow}
           </button>
           <label style={{ fontSize: 13, color: '#B0BEC5', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={autoGuide} onChange={(e) => setAutoGuide(e.target.checked)} />
-            Auto tras pausa (~3 s)
+            {t.autoAfterPause}
           </label>
         </div>
         {speechError && (
@@ -318,7 +346,7 @@ export const LiveSessionPanel: React.FC = () => {
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           }}
         >
-          {liveTranscript || (micOn ? 'Escuchando… habla o reproduce el audio de la entrevista.' : 'Sin transcripción. Activa el micrófono o usa los botones de prueba.')}
+          {liveTranscript || (micOn ? t.transcriptListening : t.transcriptIdle)}
         </div>
       </section>
 
@@ -332,10 +360,10 @@ export const LiveSessionPanel: React.FC = () => {
           }}
         >
           <h2 style={{ fontSize: 11, color: '#6ab0f5', letterSpacing: '0.08em', marginBottom: 8, textTransform: 'uppercase' }}>
-            Enunciado / pregunta (última guía enviada)
+            {t.lastPromptTitle}
           </h2>
           <div style={{ fontSize: 15, color: '#B0BEC5', lineHeight: 1.5, minHeight: 24 }}>
-            {preguntaActual || 'Se rellena al pedir guía o al simular con los botones.'}
+            {preguntaActual || t.lastPromptEmpty}
           </div>
         </section>
 
@@ -349,7 +377,7 @@ export const LiveSessionPanel: React.FC = () => {
           }}
         >
           <h2 style={{ fontSize: 14, color: '#B0BEC5', marginBottom: 8 }}>
-            ✨ {liveCoding ? 'Guía live coding' : 'Guía de respuesta'}
+            {liveCoding ? t.guideTitleCoding : t.guideTitle}
           </h2>
           <div
             style={{
@@ -360,19 +388,16 @@ export const LiveSessionPanel: React.FC = () => {
               fontFamily: liveCoding ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : 'inherit',
             }}
           >
-            {aiText ||
-              (liveCoding
-                ? 'Aquí aparecerán las secciones 【ENTENDER】【DECIR】【PASOS】【CÓDIGO】【TRAMPA】 cuando pidas guía.'
-                : 'La sugerencia aparecerá aquí cuando pidas guía o simules una pregunta.')}
+            {aiText || (liveCoding ? t.emptyGuideCoding : t.emptyGuideGeneral)}
           </div>
         </section>
 
         <div>
           <p style={{ fontSize: 11, color: '#6a8f78', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Simular pregunta (sin audio)
+            {uiSim.sectionTitle}
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {(liveCoding ? PREGUNTAS_LIVE_CODING : PREGUNTAS_DEMO).map((p) => (
+            {preguntasSimuladas.map((p) => (
               <button
                 key={p}
                 type="button"
@@ -396,9 +421,7 @@ export const LiveSessionPanel: React.FC = () => {
               type="button"
               onClick={() =>
                 enviarPregunta(
-                  liveCoding
-                    ? 'Implementa un LRU cache con get y put en O(1) amortizado.'
-                    : '¿Qué te motiva a cambiar de trabajo en este momento?'
+                  liveCoding ? ENUNCIADO_EXTRA_LIVE[simLang] : PREGUNTA_EXTRA_DEMO[simLang]
                 )
               }
               style={{
@@ -412,7 +435,7 @@ export const LiveSessionPanel: React.FC = () => {
                 cursor: 'pointer',
               }}
             >
-              {liveCoding ? 'Enunciado extra (demo)' : 'Pregunta libre (demo)'}
+              {liveCoding ? uiSim.extraCoding : uiSim.extraBehavioral}
             </button>
           </div>
         </div>

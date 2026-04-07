@@ -1,13 +1,37 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SERVER_URL } from '../lib/config';
+import {
+  type SimLang,
+  LANG_NATIVE_NAMES,
+  SIM_LANGS,
+  WIZARD_LANGUAGE_GATE,
+  WIZARD_UI,
+  loadSavedWizardLocale,
+} from './wizardI18n';
 
 type InterviewType = 'behavioral' | 'technical' | 'mixed' | 'hr' | 'live_coding';
 type ResponseStyle = 'concise' | 'bullet_points' | 'detailed';
 type CaptureMode = 'extension' | 'virtual_device' | 'display_media';
 
+function interviewLangLabel(
+  ai: (typeof WIZARD_UI)['es']['ai'],
+  code: string
+): string {
+  if (code === 'auto') return ai.langAuto;
+  const map: Record<string, string> = {
+    es: ai.langEs,
+    en: ai.langEn,
+    pt: ai.langPt,
+    fr: ai.langFr,
+    de: ai.langDe
+  };
+  return map[code] ?? code;
+}
+
 export const SessionConfigWizard: React.FC = () => {
   const navigate = useNavigate();
+  const [uiLocale, setUiLocale] = useState<SimLang | null>(() => loadSavedWizardLocale());
   const [step, setStep] = useState(1);
   const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
   const [niceSkills, setNiceSkills] = useState<string[]>([]);
@@ -27,8 +51,10 @@ export const SessionConfigWizard: React.FC = () => {
   const [resumeFileName, setResumeFileName] = useState('');
   const [additionalContext, setAdditionalContext] = useState('');
 
-  const [interviewLanguage, setInterviewLanguage] = useState<'auto' | 'es' | 'en' | 'pt' | 'fr' | 'de'>('auto');
-  const [responseLanguage, setResponseLanguage] = useState<'es' | 'en' | 'pt' | 'fr' | 'de'>('es');
+  const [interviewLanguage, setInterviewLanguage] = useState<'auto' | 'es' | 'en' | 'pt' | 'fr' | 'de'>(() => {
+    return loadSavedWizardLocale() ?? 'es';
+  });
+  const [responseLanguage, setResponseLanguage] = useState<'es' | 'en' | 'pt' | 'fr' | 'de'>(() => loadSavedWizardLocale() ?? 'es');
   const [responseStyle, setResponseStyle] = useState<ResponseStyle>('concise');
   const [captureMode, setCaptureMode] = useState<CaptureMode>('extension');
 
@@ -36,16 +62,37 @@ export const SessionConfigWizard: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [stepError, setStepError] = useState('');
 
+  const w = useMemo(() => WIZARD_UI[uiLocale ?? 'es'], [uiLocale]);
+
+  /** Keep HTML lang, AI language picks, and UI copy aligned with the interface language chosen in step 1. */
+  useEffect(() => {
+    if (!uiLocale) return;
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('lang', uiLocale);
+    }
+    try {
+      localStorage.setItem('ip_ui_locale', uiLocale);
+    } catch {
+      /* ignore */
+    }
+    setResponseLanguage(uiLocale);
+    setInterviewLanguage(uiLocale);
+  }, [uiLocale]);
+
+  useEffect(() => {
+    if (!uiLocale) setStep(1);
+  }, [uiLocale]);
+
   const validateStep = (current: number): boolean => {
-    if (current === 1) {
+    if (current === 2) {
       if (!jobTitle.trim() || !company.trim() || !jobDescription.trim() || requiredSkills.length === 0) {
-        setStepError('Completa cargo, empresa, descripción y al menos una skill requerida.');
+        setStepError(w.errors.stepJob);
         return false;
       }
     }
-    if (current === 2) {
+    if (current === 3) {
       if (!keyAchievements.trim() || !resumeSummary.trim()) {
-        setStepError('Agrega tus logros clave y un resumen de tu perfil/CV.');
+        setStepError(w.errors.stepProfile);
         return false;
       }
     }
@@ -67,8 +114,10 @@ export const SessionConfigWizard: React.FC = () => {
   };
 
   const handleLaunch = async () => {
+    if (!uiLocale) return;
     const sessionId = 'ses_' + Math.random().toString(36).slice(2, 10);
     const config = {
+      uiLocale,
       jobTitle,
       company,
       jobDescription,
@@ -159,30 +208,28 @@ export const SessionConfigWizard: React.FC = () => {
             Interview<span style={{ color: '#00d97e' }}>Pilot</span>
           </span>
         </div>
-        <span style={{ fontSize: 11, letterSpacing: '0.1em', color: '#384d3e' }}>CONFIGURACIÓN DE SESIÓN</span>
+        <span style={{ fontSize: 11, letterSpacing: '0.1em', color: '#384d3e' }}>
+          {uiLocale ? w.headerSubtitle : ''}
+        </span>
       </header>
 
       <main
         style={{
           display: 'grid',
-          gridTemplateColumns: '260px 1fr',
-          maxWidth: 1000,
+          gridTemplateColumns: uiLocale ? '260px 1fr' : '1fr',
+          maxWidth: uiLocale ? 1000 : 640,
           margin: '0 auto',
           padding: '48px 40px',
           gap: 48
         }}
       >
+        {uiLocale ? (
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {[
-            { id: 1, label: 'La vacante', desc: 'Cargo, empresa y descripción' },
-            { id: 2, label: 'Tu perfil', desc: 'Experiencia y logros' },
-            { id: 3, label: 'IA y audio', desc: 'Idioma, estilo y fuente' },
-            { id: 4, label: 'Revisar', desc: 'Confirmar y lanzar' }
-          ].map((s) => (
+          {w.navSteps.map((s, idx) => (
             <button
-              key={s.id}
+              key={s.title}
               type="button"
-              onClick={() => setStep(s.id)}
+              onClick={() => setStep(idx + 1)}
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',
@@ -192,8 +239,8 @@ export const SessionConfigWizard: React.FC = () => {
                 cursor: 'pointer',
                 border: '1px solid transparent',
                 background:
-                  step === s.id ? 'rgba(0,217,126,0.15)' : 'transparent',
-                opacity: step > s.id ? 0.8 : 1
+                  step === idx + 1 ? 'rgba(0,217,126,0.15)' : 'transparent',
+                opacity: step > idx + 1 ? 0.8 : 1
               }}
             >
               <div
@@ -201,144 +248,108 @@ export const SessionConfigWizard: React.FC = () => {
                   width: 24,
                   height: 24,
                   borderRadius: '50%',
-                  border: `1.5px solid ${step === s.id ? '#00d97e' : '#2a3d31'}`,
+                  border: `1.5px solid ${step === idx + 1 ? '#00d97e' : '#2a3d31'}`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 11,
-                  color: step === s.id ? '#000' : '#384d3e',
-                  background: step === s.id ? '#00d97e' : 'transparent'
+                  color: step === idx + 1 ? '#000' : '#384d3e',
+                  background: step === idx + 1 ? '#00d97e' : 'transparent'
                 }}
               >
-                {s.id}
+                {idx + 1}
               </div>
               <div style={{ textAlign: 'left' }}>
                 <div
                   style={{
                     fontSize: 11,
                     letterSpacing: '0.05em',
-                    color: step === s.id ? '#00d97e' : '#6a8f78',
+                    color: step === idx + 1 ? '#00d97e' : '#6a8f78',
                     textTransform: 'uppercase',
                     marginBottom: 3
                   }}
                 >
-                  {s.label}
+                  {s.title}
                 </div>
                 <div style={{ fontSize: 10, color: '#384d3e' }}>{s.desc}</div>
               </div>
             </button>
           ))}
         </aside>
+        ) : null}
 
         <section style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           {step === 1 && (
             <>
               <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 10, letterSpacing: '0.18em', color: '#00d97e', textTransform: 'uppercase' }}>
-                  paso 01 / 04
+                  {uiLocale ? w.lang.badge : '01 / 05'}
                 </span>
-                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>La vacante</h1>
-                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>
-                  Ingresa los detalles del cargo. Cuanto más específico seas, mejores serán las respuestas sugeridas. Si elegís &quot;Prueba en vivo&quot;, la IA priorizará pasos de código, qué decir en voz alta y trampas típicas.
-                </p>
-              </header>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div>
-                    <label style={labelStyle}>
-                      Cargo <span style={{ color: '#00d97e' }}>*</span>
-                    </label>
-                    <input
-                      value={jobTitle}
-                      onChange={(e) => setJobTitle(e.target.value)}
-                      placeholder="ej: Senior Frontend Developer"
-                      style={inputStyle}
-                    />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>
-                      Empresa <span style={{ color: '#00d97e' }}>*</span>
-                    </label>
-                    <input
-                      value={company}
-                      onChange={(e) => setCompany(e.target.value)}
-                      placeholder="ej: Rappi, Bancolombia, Google..."
-                      style={inputStyle}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label style={labelStyle}>
-                    Descripción de la vacante <span style={{ color: '#00d97e' }}>*</span>
-                  </label>
-                  <textarea
-                    value={jobDescription}
-                    onChange={(e) => setJobDescription(e.target.value)}
-                    placeholder="Pega aquí la descripción completa del cargo..."
-                    rows={4}
-                    style={{ ...inputStyle, minHeight: 90 }}
-                  />
-                  <p style={{ fontSize: 10, color: '#384d3e', fontStyle: 'italic', marginTop: 4 }}>
-                    Mientras más completa, más precisas serán las respuestas de la IA.
-                  </p>
-                </div>
-
-                <SkillField
-                  label="Skills requeridas"
-                  placeholder="React, TypeScript, AWS..."
-                  skills={requiredSkills}
-                  onAdd={(value) => handleAddSkill(value, 'required')}
-                  onRemove={(s) => setRequiredSkills((prev) => prev.filter((x) => x !== s))}
-                />
-
-                <SkillField
-                  label="Skills deseables"
-                  placeholder="Docker, GraphQL, Figma..."
-                  skills={niceSkills}
-                  onAdd={(value) => handleAddSkill(value, 'nice')}
-                  onRemove={(s) => setNiceSkills((prev) => prev.filter((x) => x !== s))}
-                />
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div>
-                    <label style={labelStyle}>Tipo de entrevista</label>
-                    <select
-                      value={interviewType}
-                      onChange={(e) => setInterviewType(e.target.value as InterviewType)}
-                      style={inputStyle}
+                {!uiLocale ? (
+                  <>
+                    <h1
+                      style={{
+                        fontFamily: 'Syne, system-ui',
+                        fontSize: 24,
+                        fontWeight: 800,
+                        lineHeight: 1.35,
+                        maxWidth: 560
+                      }}
                     >
-                      <option value="mixed">Mixta (técnica + comportamental)</option>
-                      <option value="technical">Técnica</option>
-                      <option value="behavioral">Comportamental / STAR</option>
-                      <option value="hr">RRHH / Cultural fit</option>
-                      <option value="live_coding">Prueba en vivo (live coding)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Rango salarial (opcional)</label>
-                    <input
-                      value={salaryRange}
-                      onChange={(e) => setSalaryRange(e.target.value)}
-                      placeholder="ej: COP 8M - 12M / mes"
-                      style={inputStyle}
-                    />
-                  </div>
+                      {WIZARD_LANGUAGE_GATE.title}
+                    </h1>
+                    <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 520, lineHeight: 1.6 }}>{WIZARD_LANGUAGE_GATE.subtitle}</p>
+                  </>
+                ) : null}
+              </header>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={labelStyle}>{uiLocale ? w.lang.label : WIZARD_LANGUAGE_GATE.pickerLabel}</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {SIM_LANGS.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setUiLocale(code)}
+                      style={{
+                        padding: '12px 18px',
+                        borderRadius: 8,
+                        border: uiLocale === code ? '1px solid #00d97e' : '1px solid #2a3d31',
+                        background: uiLocale === code ? 'rgba(0,217,126,0.2)' : '#0e1410',
+                        color: uiLocale === code ? '#00d97e' : '#c8e8d4',
+                        fontFamily: `'DM Mono', monospace`,
+                        fontSize: 13,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {uiLocale ? w.lang.langNames[code] : LANG_NATIVE_NAMES[code]}
+                    </button>
+                  ))}
                 </div>
+                {uiLocale ? (
+                  <>
+                    <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800, marginTop: 8 }}>{w.lang.title}</h1>
+                    <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 520, lineHeight: 1.6, marginTop: 0 }}>{w.lang.intro}</p>
+                    <p style={{ fontSize: 11, color: '#384d3e', maxWidth: 480 }}>{w.lang.hint}</p>
+                  </>
+                ) : null}
               </div>
-
               <footer style={navRowStyle}>
-                <span style={{ fontSize: 11, color: '#e05252' }}>{stepError}</span>
+                <span />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <span style={stepCounterStyle}>1 de 4</span>
+                  <span style={stepCounterStyle}>{uiLocale ? `1 ${w.nav.of} 5` : '1 / 5'}</span>
                   <button
-                    style={nextButtonStyle}
+                    type="button"
+                    style={{
+                      ...nextButtonStyle,
+                      opacity: uiLocale ? 1 : 0.35,
+                      cursor: uiLocale ? 'pointer' : 'not-allowed'
+                    }}
+                    disabled={!uiLocale}
                     onClick={() => {
-                      if (validateStep(1)) setStep(2);
+                      if (uiLocale) setStep(2);
                     }}
                   >
-                    Continuar →
+                    {uiLocale ? w.lang.continue : WIZARD_LANGUAGE_GATE.continueDisabled}
                   </button>
                 </div>
               </footer>
@@ -349,18 +360,133 @@ export const SessionConfigWizard: React.FC = () => {
             <>
               <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 10, letterSpacing: '0.18em', color: '#00d97e', textTransform: 'uppercase' }}>
-                  paso 02 / 04
+                  {w.job.badge}
                 </span>
-                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>Tu perfil</h1>
-                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>
-                  La IA usará esta información para personalizar las respuestas con tus experiencias reales.
-                </p>
+                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>{w.job.title}</h1>
+                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>{w.job.intro}</p>
               </header>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <div>
-                    <label style={labelStyle}>Tu nombre</label>
+                    <label style={labelStyle}>
+                      {w.job.jobTitle} <span style={{ color: '#00d97e' }}>*</span>
+                    </label>
+                    <input
+                      value={jobTitle}
+                      onChange={(e) => setJobTitle(e.target.value)}
+                      placeholder={w.job.jobTitlePh}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>
+                      {w.job.company} <span style={{ color: '#00d97e' }}>*</span>
+                    </label>
+                    <input
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                      placeholder={w.job.companyPh}
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={labelStyle}>
+                    {w.job.jobDescription} <span style={{ color: '#00d97e' }}>*</span>
+                  </label>
+                  <textarea
+                    value={jobDescription}
+                    onChange={(e) => setJobDescription(e.target.value)}
+                    placeholder={w.job.jobDescPh}
+                    rows={4}
+                    style={{ ...inputStyle, minHeight: 90 }}
+                  />
+                  <p style={{ fontSize: 10, color: '#384d3e', fontStyle: 'italic', marginTop: 4 }}>{w.job.jobDescHint}</p>
+                </div>
+
+                <SkillField
+                  label={w.job.requiredSkills}
+                  placeholder={w.job.requiredSkillsPh}
+                  addLabel={w.skillAdd}
+                  skills={requiredSkills}
+                  onAdd={(value) => handleAddSkill(value, 'required')}
+                  onRemove={(s) => setRequiredSkills((prev) => prev.filter((x) => x !== s))}
+                />
+
+                <SkillField
+                  label={w.job.niceSkills}
+                  placeholder={w.job.niceSkillsPh}
+                  addLabel={w.skillAdd}
+                  skills={niceSkills}
+                  onAdd={(value) => handleAddSkill(value, 'nice')}
+                  onRemove={(s) => setNiceSkills((prev) => prev.filter((x) => x !== s))}
+                />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <label style={labelStyle}>{w.job.interviewType}</label>
+                    <select
+                      value={interviewType}
+                      onChange={(e) => setInterviewType(e.target.value as InterviewType)}
+                      style={inputStyle}
+                    >
+                      <option value="mixed">{w.job.interviewMixed}</option>
+                      <option value="technical">{w.job.interviewTechnical}</option>
+                      <option value="behavioral">{w.job.interviewBehavioral}</option>
+                      <option value="hr">{w.job.interviewHr}</option>
+                      <option value="live_coding">{w.job.interviewLiveCoding}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>{w.job.salaryRange}</label>
+                    <input
+                      value={salaryRange}
+                      onChange={(e) => setSalaryRange(e.target.value)}
+                      placeholder={w.job.salaryPh}
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <footer style={navRowStyle}>
+                <button type="button" style={backButtonStyle} onClick={() => setStep(1)}>
+                  {w.nav.back}
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <span style={{ fontSize: 11, color: '#e05252' }}>{stepError}</span>
+                  <span style={stepCounterStyle}>
+                    2 {w.nav.of} 5
+                  </span>
+                  <button
+                    style={nextButtonStyle}
+                    onClick={() => {
+                      if (validateStep(2)) setStep(3);
+                    }}
+                  >
+                    {w.nav.continue}
+                  </button>
+                </div>
+              </footer>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 10, letterSpacing: '0.18em', color: '#00d97e', textTransform: 'uppercase' }}>
+                  {w.profile.badge}
+                </span>
+                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>{w.profile.title}</h1>
+                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>{w.profile.intro}</p>
+              </header>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <label style={labelStyle}>{w.profile.yourName}</label>
                     <input
                       value={candidateName}
                       onChange={(e) => setCandidateName(e.target.value)}
@@ -368,7 +494,7 @@ export const SessionConfigWizard: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label style={labelStyle}>Rol actual</label>
+                    <label style={labelStyle}>{w.profile.currentRole}</label>
                     <input
                       value={currentRole}
                       onChange={(e) => setCurrentRole(e.target.value)}
@@ -380,34 +506,34 @@ export const SessionConfigWizard: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <div>
                     <label style={labelStyle}>
-                      Años de experiencia <span style={{ color: '#00d97e' }}>*</span>
+                      {w.profile.yearsExp} <span style={{ color: '#00d97e' }}>*</span>
                     </label>
                     <select
                       value={yearsOfExperience}
                       onChange={(e) => setYearsOfExperience(e.target.value)}
                       style={inputStyle}
                     >
-                      <option value="0">Menos de 1 año</option>
-                      <option value="1">1-2 años</option>
-                      <option value="3">3-5 años</option>
-                      <option value="5">5-8 años</option>
-                      <option value="8">8-12 años</option>
-                      <option value="12">12+ años</option>
+                      <option value="0">{w.profile.years0}</option>
+                      <option value="1">{w.profile.years12}</option>
+                      <option value="3">{w.profile.years35}</option>
+                      <option value="5">{w.profile.years58}</option>
+                      <option value="8">{w.profile.years812}</option>
+                      <option value="12">{w.profile.years12p}</option>
                     </select>
                   </div>
                   <div>
-                    <label style={labelStyle}>Tecnologías que dominas</label>
+                    <label style={labelStyle}>{w.profile.technologies}</label>
                     <input
                       value={technologiesUsed}
                       onChange={(e) => setTechnologiesUsed(e.target.value)}
-                      placeholder="React, Node.js, PostgreSQL, AWS..."
+                      placeholder={w.profile.technologiesPh}
                       style={inputStyle}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label style={labelStyle}>CV / Resume (PDF o Word) (opcional)</label>
+                  <label style={labelStyle}>{w.profile.resumeFile}</label>
                   <input
                     type="file"
                     accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -424,27 +550,27 @@ export const SessionConfigWizard: React.FC = () => {
                   />
                   {resumeFileName && (
                     <p style={{ fontSize: 10, color: '#6a8f78', marginTop: 4 }}>
-                      Archivo seleccionado: <span style={{ color: '#c8e8d4' }}>{resumeFileName}</span>
+                      {w.profile.fileSelected} <span style={{ color: '#c8e8d4' }}>{resumeFileName}</span>
                     </p>
                   )}
                 </div>
 
                 <div>
                   <label style={labelStyle}>
-                    Logros clave <span style={{ color: '#00d97e' }}>*</span>
+                    {w.profile.keyAchievements} <span style={{ color: '#00d97e' }}>*</span>
                   </label>
                   <textarea
                     value={keyAchievements}
                     onChange={(e) => setKeyAchievements(e.target.value)}
                     rows={4}
-                    placeholder="Incluye métricas concretas..."
+                    placeholder={w.profile.keyAchievementsPh}
                     style={{ ...inputStyle, minHeight: 90 }}
                   />
                 </div>
 
                 <div>
                   <label style={labelStyle}>
-                    Resumen de tu CV / perfil profesional <span style={{ color: '#00d97e' }}>*</span>
+                    {w.profile.resumeSummary} <span style={{ color: '#00d97e' }}>*</span>
                   </label>
                   <textarea
                     value={resumeSummary}
@@ -455,7 +581,7 @@ export const SessionConfigWizard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label style={labelStyle}>Contexto adicional (opcional)</label>
+                  <label style={labelStyle}>{w.profile.additionalContext}</label>
                   <textarea
                     value={additionalContext}
                     onChange={(e) => setAdditionalContext(e.target.value)}
@@ -466,89 +592,88 @@ export const SessionConfigWizard: React.FC = () => {
               </div>
 
               <footer style={navRowStyle}>
-                <button style={backButtonStyle} onClick={() => setStep(1)}>
-                  ← Atrás
+                <button type="button" style={backButtonStyle} onClick={() => setStep(2)}>
+                  {w.nav.back}
                 </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <span style={stepCounterStyle}>2 de 4</span>
+                  <span style={{ fontSize: 11, color: '#e05252' }}>{stepError}</span>
+                  <span style={stepCounterStyle}>3 {w.nav.of} 5</span>
                   <button
                     style={nextButtonStyle}
                     onClick={() => {
-                      if (validateStep(2)) setStep(3);
+                      if (validateStep(3)) setStep(4);
                     }}
                   >
-                    Continuar →
+                    {w.nav.continue}
                   </button>
                 </div>
               </footer>
             </>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <>
               <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 10, letterSpacing: '0.18em', color: '#00d97e', textTransform: 'uppercase' }}>
-                  paso 03 / 04
+                  {w.ai.badge}
                 </span>
-                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>IA y audio</h1>
-                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>
-                  Configura cómo la herramienta escucha la entrevista y cómo quieres que aparezcan las respuestas.
-                </p>
+                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>{w.ai.title}</h1>
+                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>{w.ai.intro}</p>
               </header>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <div>
-                    <label style={labelStyle}>Idioma de la entrevista</label>
+                    <label style={labelStyle}>{w.ai.interviewLanguage}</label>
                     <select
                       value={interviewLanguage}
-                      onChange={(e) => setInterviewLanguage(e.target.value as any)}
+                      onChange={(e) => setInterviewLanguage(e.target.value as 'auto' | 'es' | 'en' | 'pt' | 'fr' | 'de')}
                       style={inputStyle}
                     >
-                      <option value="auto">🔍 Detectar automáticamente</option>
-                      <option value="es">🇪🇸 Español</option>
-                      <option value="en">🇺🇸 English</option>
-                      <option value="pt">🇧🇷 Português</option>
-                      <option value="fr">🇫🇷 Français</option>
-                      <option value="de">🇩🇪 Deutsch</option>
+                      <option value="auto">{w.ai.langAuto}</option>
+                      <option value="es">{w.ai.langEs}</option>
+                      <option value="en">{w.ai.langEn}</option>
+                      <option value="pt">{w.ai.langPt}</option>
+                      <option value="fr">{w.ai.langFr}</option>
+                      <option value="de">{w.ai.langDe}</option>
                     </select>
                   </div>
                   <div>
-                    <label style={labelStyle}>Idioma de las respuestas sugeridas</label>
+                    <label style={labelStyle}>{w.ai.responseLanguage}</label>
                     <select
                       value={responseLanguage}
-                      onChange={(e) => setResponseLanguage(e.target.value as any)}
+                      onChange={(e) => setResponseLanguage(e.target.value as 'es' | 'en' | 'pt' | 'fr' | 'de')}
                       style={inputStyle}
                     >
-                      <option value="es">🇪🇸 Español</option>
-                      <option value="en">🇺🇸 English</option>
-                      <option value="pt">🇧🇷 Português</option>
-                      <option value="fr">🇫🇷 Français</option>
-                      <option value="de">🇩🇪 Deutsch</option>
+                      <option value="es">{w.ai.langEs}</option>
+                      <option value="en">{w.ai.langEn}</option>
+                      <option value="pt">{w.ai.langPt}</option>
+                      <option value="fr">{w.ai.langFr}</option>
+                      <option value="de">{w.ai.langDe}</option>
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label style={labelStyle}>Estilo de respuesta</label>
+                  <label style={labelStyle}>{w.ai.responseStyle}</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
                     <StyleCard
-                      title="Concisa"
-                      desc="2-3 oraciones. Ideal para leer y hablar al mismo tiempo."
+                      title={w.ai.styleConcise}
+                      desc={w.ai.styleConciseDesc}
                       icon="⚡"
                       selected={responseStyle === 'concise'}
                       onClick={() => setResponseStyle('concise')}
                     />
                     <StyleCard
-                      title="Puntos clave"
-                      desc="3-4 bullets con verbos de acción."
+                      title={w.ai.styleBullets}
+                      desc={w.ai.styleBulletsDesc}
                       icon="📌"
                       selected={responseStyle === 'bullet_points'}
                       onClick={() => setResponseStyle('bullet_points')}
                     />
                     <StyleCard
-                      title="Detallada"
-                      desc="Respuesta completa con método STAR."
+                      title={w.ai.styleDetailed}
+                      desc={w.ai.styleDetailedDesc}
                       icon="📝"
                       selected={responseStyle === 'detailed'}
                       onClick={() => setResponseStyle('detailed')}
@@ -558,27 +683,27 @@ export const SessionConfigWizard: React.FC = () => {
 
                 <div>
                   <label style={labelStyle}>
-                    Fuente de audio <span style={{ color: '#00d97e' }}>*</span>
+                    {w.ai.audioSource} <span style={{ color: '#00d97e' }}>*</span>
                   </label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <AudioOption
-                      title="Extensión de Chrome (Recomendado)"
-                      desc="Captura el audio del tab de Meet directamente. Sin configuración adicional. Invisible al entrevistador."
-                      badges={['✓ Google Meet', '✓ 100% Invisible', '✓ Sin setup']}
+                      title={w.ai.extTitle}
+                      desc={w.ai.extDesc}
+                      badges={w.ai.extBadges}
                       selected={captureMode === 'extension'}
                       onClick={() => setCaptureMode('extension')}
                     />
                     <AudioOption
-                      title="Dispositivo de audio virtual"
-                      desc="Requiere BlackHole (Mac) o VB-Cable (Windows). Ideal para Zoom y Teams nativos."
-                      badges={['✓ Zoom', '✓ Teams', '⚠ Instalar BlackHole/VB-Cable']}
+                      title={w.ai.virtTitle}
+                      desc={w.ai.virtDesc}
+                      badges={w.ai.virtBadges}
                       selected={captureMode === 'virtual_device'}
                       onClick={() => setCaptureMode('virtual_device')}
                     />
                     <AudioOption
-                      title="Compartir pantalla con audio"
-                      desc="Sin instalación adicional. El navegador pedirá elegir qué compartir. Activar 'Compartir audio del sistema'."
-                      badges={['✓ Universal', '⚠ Muestra barra de captura']}
+                      title={w.ai.dmTitle}
+                      desc={w.ai.dmDesc}
+                      badges={w.ai.dmBadges}
                       selected={captureMode === 'display_media'}
                       onClick={() => setCaptureMode('display_media')}
                     />
@@ -597,7 +722,7 @@ export const SessionConfigWizard: React.FC = () => {
                   }}
                 >
                   <span style={{ fontSize: 10, letterSpacing: '0.12em', color: '#384d3e', textTransform: 'uppercase' }}>
-                    Prueba de audio
+                    {w.ai.audioTest}
                   </span>
                   <div
                     style={{
@@ -623,7 +748,7 @@ export const SessionConfigWizard: React.FC = () => {
                         gap: 6
                       }}
                     >
-                      <span>🎙</span> {testing ? 'Probando...' : 'Probar micrófono'}
+                      <span>🎙</span> {testing ? w.ai.testing : w.ai.testMic}
                     </button>
                     <span
                       style={{
@@ -631,36 +756,36 @@ export const SessionConfigWizard: React.FC = () => {
                         color: testStatus === 'ok' ? '#00d97e' : testStatus === 'error' ? '#e05252' : '#384d3e'
                       }}
                     >
-                      {testStatus === 'idle' && 'Sin probar'}
-                      {testStatus === 'ok' && '✓ Micrófono funcionando'}
-                      {testStatus === 'error' && '✗ Permiso denegado'}
+                      {testStatus === 'idle' && w.ai.notTested}
+                      {testStatus === 'ok' && w.ai.micOk}
+                      {testStatus === 'error' && w.ai.micDenied}
                     </span>
                   </div>
                 </div>
               </div>
 
               <footer style={navRowStyle}>
-                <button style={backButtonStyle} onClick={() => setStep(2)}>
-                  ← Atrás
+                <button type="button" style={backButtonStyle} onClick={() => setStep(3)}>
+                  {w.nav.back}
                 </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <span style={stepCounterStyle}>3 de 4</span>
-                  <button style={nextButtonStyle} onClick={() => setStep(4)}>
-                    Revisar →
+                  <span style={stepCounterStyle}>4 {w.nav.of} 5</span>
+                  <button type="button" style={nextButtonStyle} onClick={() => setStep(5)}>
+                    {w.ai.reviewBtn}
                   </button>
                 </div>
               </footer>
             </>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <>
               <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 10, letterSpacing: '0.18em', color: '#00d97e', textTransform: 'uppercase' }}>
-                  paso 04 / 04
+                  {w.review.badge}
                 </span>
-                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>Todo listo</h1>
-                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>Revisa la configuración antes de iniciar.</p>
+                <h1 style={{ fontFamily: 'Syne, system-ui', fontSize: 26, fontWeight: 800 }}>{w.review.title}</h1>
+                <p style={{ fontSize: 12, color: '#6a8f78', maxWidth: 480 }}>{w.review.intro}</p>
               </header>
 
               <div
@@ -670,25 +795,30 @@ export const SessionConfigWizard: React.FC = () => {
                   gap: 12
                 }}
               >
-                <SummaryCard label="Cargo" value={jobTitle || '—'} accent />
-                <SummaryCard label="Empresa" value={company || '—'} />
+                <SummaryCard label={w.review.summaryJobTitle} value={jobTitle || '—'} accent />
+                <SummaryCard label={w.review.summaryCompany} value={company || '—'} />
                 <SummaryCard
-                  label="Tipo de entrevista"
-                  value={
-                    {
-                      mixed: 'Mixta',
-                      technical: 'Técnica',
-                      behavioral: 'Comportamental',
-                      hr: 'RRHH / Cultural fit',
-                      live_coding: 'Prueba en vivo (live coding)'
-                    }[interviewType]
-                  }
+                  label={w.review.summaryInterviewType}
+                  value={w.review.interviewLabels[interviewType] ?? interviewType}
                 />
-                <SummaryCard label="Años de experiencia" value={yearsOfExperience} />
-                <SummaryCard label="Idioma entrevista" value={interviewLanguage} />
-                <SummaryCard label="Idioma respuestas" value={responseLanguage} accent />
-                <SummaryCard label="Estilo IA" value={responseStyle} />
-                <SummaryCard label="Fuente audio" value={captureMode} />
+                <SummaryCard label={w.review.summaryYears} value={yearsOfExperience} />
+                <SummaryCard
+                  label={w.review.summaryILang}
+                  value={interviewLangLabel(w.ai, interviewLanguage)}
+                />
+                <SummaryCard
+                  label={w.review.summaryRLang}
+                  value={interviewLangLabel(w.ai, responseLanguage)}
+                  accent
+                />
+                <SummaryCard
+                  label={w.review.summaryStyle}
+                  value={w.review.styleLabels[responseStyle] ?? responseStyle}
+                />
+                <SummaryCard
+                  label={w.review.summaryAudio}
+                  value={w.review.captureLabels[captureMode] ?? captureMode}
+                />
               </div>
 
               {requiredSkills.length > 0 && (
@@ -701,7 +831,7 @@ export const SessionConfigWizard: React.FC = () => {
                   }}
                 >
                   <div style={{ fontSize: 9, letterSpacing: '0.12em', color: '#384d3e', textTransform: 'uppercase' }}>
-                    Skills requeridas
+                    {w.review.requiredSkillsSection}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                     {requiredSkills.map((s) => (
@@ -723,10 +853,11 @@ export const SessionConfigWizard: React.FC = () => {
               )}
 
               <footer style={navRowStyle}>
-                <button style={backButtonStyle} onClick={() => setStep(3)}>
-                  ← Atrás
+                <button type="button" style={backButtonStyle} onClick={() => setStep(4)}>
+                  {w.nav.back}
                 </button>
                 <button
+                  type="button"
                   style={{
                     background: '#00d97e',
                     border: 'none',
@@ -740,7 +871,7 @@ export const SessionConfigWizard: React.FC = () => {
                   }}
                   onClick={handleLaunch}
                 >
-                  🚀 INICIAR SESIÓN
+                  {w.review.launch}
                 </button>
               </footer>
             </>
@@ -812,12 +943,13 @@ const stepCounterStyle: React.CSSProperties = {
 type SkillFieldProps = {
   label: string;
   placeholder: string;
+  addLabel: string;
   skills: string[];
   onAdd: (value: string) => void;
   onRemove: (skill: string) => void;
 };
 
-const SkillField: React.FC<SkillFieldProps> = ({ label, placeholder, skills, onAdd, onRemove }) => {
+const SkillField: React.FC<SkillFieldProps> = ({ label, placeholder, addLabel, skills, onAdd, onRemove }) => {
   const [value, setValue] = useState('');
   const add = () => {
     if (!value.trim()) return;
@@ -888,7 +1020,7 @@ const SkillField: React.FC<SkillFieldProps> = ({ label, placeholder, skills, onA
               whiteSpace: 'nowrap'
             }}
           >
-            + Agregar
+            {addLabel}
           </button>
         </div>
       </div>
