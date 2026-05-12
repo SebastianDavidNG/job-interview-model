@@ -36,15 +36,6 @@ export function loadSavedWizardLocale(): SimLang | null {
   return null;
 }
 
-/** Load saved UI locale or browser language (fallback es). */
-export function initialWizardLocale(): SimLang {
-  const saved = loadSavedWizardLocale();
-  if (saved) return saved;
-  const nav = typeof navigator !== 'undefined' ? navigator.language.slice(0, 2).toLowerCase() : 'es';
-  if (SIM_LANGS.includes(nav as SimLang)) return nav as SimLang;
-  return 'es';
-}
-
 export type WizardCopy = {
   headerSubtitle: string;
   navSteps: { title: string; desc: string }[];

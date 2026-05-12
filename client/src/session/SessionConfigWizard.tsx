@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SERVER_URL } from '../lib/config';
+import { SESSION_CONFIG_STORAGE_KEY } from './storageKeys';
 import {
   type SimLang,
   LANG_NATIVE_NAMES,
@@ -103,8 +104,10 @@ export const SessionConfigWizard: React.FC = () => {
   const handleAddSkill = (value: string, target: 'required' | 'nice') => {
     const cleaned = value
       .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+      .flatMap((s) => {
+        const trimmed = s.trim();
+        return trimmed ? [trimmed] : [];
+      });
     if (!cleaned.length) return;
     if (target === 'required') {
       setRequiredSkills((prev) => Array.from(new Set([...prev, ...cleaned])));
@@ -139,7 +142,7 @@ export const SessionConfigWizard: React.FC = () => {
       captureMode
     };
 
-    localStorage.setItem('ip_config', JSON.stringify(config));
+    localStorage.setItem(SESSION_CONFIG_STORAGE_KEY, JSON.stringify(config));
     localStorage.setItem('ip_session', sessionId);
 
     try {

@@ -7,6 +7,7 @@ import {
   useLiveSpeechRecognition,
 } from '../hooks/useLiveSpeechRecognition';
 import { SERVER_URL } from '../lib/config';
+import { readSessionConfigStorage } from './storageKeys';
 import {
   ENUNCIADO_EXTRA_LIVE,
   PREGUNTA_EXTRA_DEMO,
@@ -37,13 +38,12 @@ export const LiveSessionPanel: React.FC = () => {
   const [autoGuide, setAutoGuide] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [speechLang, setSpeechLang] = useState('es-ES');
   const [interviewLanguage, setInterviewLanguage] = useState<string | undefined>(undefined);
   const [responseLanguage, setResponseLanguage] = useState<string | undefined>(undefined);
   const [uiLocale, setUiLocale] = useState<string | undefined>(undefined);
-  const [sessionInterviewType, setSessionInterviewType] = useState<string>('mixed');
 
   const socketRef = useRef<Socket | null>(null);
+  const sessionInterviewTypeRef = useRef('mixed');
   /** Always current for socket emits (avoids stale closures in pedirGuia). */
   const aiSessionCtxRef = useRef({
     responseLanguage: undefined as string | undefined,
@@ -57,10 +57,14 @@ export const LiveSessionPanel: React.FC = () => {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const speechOk = isBrowserSpeechSupported();
+  const speechLang = useMemo(
+    () => speechLocaleFromInterviewLanguage(interviewLanguage),
+    [interviewLanguage]
+  );
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('ip_config');
+      const raw = readSessionConfigStorage();
       if (!raw) return;
       const cfg = JSON.parse(raw) as {
         interviewType?: string;
@@ -68,12 +72,12 @@ export const LiveSessionPanel: React.FC = () => {
         responseLanguage?: string;
         uiLocale?: string;
       };
-      setLiveCoding(cfg.interviewType === 'live_coding');
-      setSessionInterviewType(cfg.interviewType ?? 'mixed');
+      const nextInterviewType = cfg.interviewType ?? 'mixed';
+      sessionInterviewTypeRef.current = nextInterviewType;
+      setLiveCoding(nextInterviewType === 'live_coding');
       setInterviewLanguage(cfg.interviewLanguage);
       setResponseLanguage(cfg.responseLanguage);
       setUiLocale(cfg.uiLocale);
-      setSpeechLang(speechLocaleFromInterviewLanguage(cfg.interviewLanguage));
       if (cfg.interviewType === 'live_coding') setAutoGuide(true);
     } catch {
       /* ignore */
@@ -94,9 +98,9 @@ export const LiveSessionPanel: React.FC = () => {
       responseLanguage,
       uiLocale,
       interviewLanguage,
-      interviewType: sessionInterviewType,
+      interviewType: sessionInterviewTypeRef.current,
     };
-  }, [responseLanguage, uiLocale, interviewLanguage, sessionInterviewType]);
+  }, [responseLanguage, uiLocale, interviewLanguage]);
 
   const preguntasSimuladas = useMemo(
     () => (liveCoding ? PREGUNTAS_LIVE_CODING[simLang] : PREGUNTAS_DEMO[simLang]),
@@ -183,22 +187,23 @@ export const LiveSessionPanel: React.FC = () => {
     const socket = io(SERVER_URL);
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    const handleConnect = () => {
       setStatus('connected');
       if (sessionId) socket.emit('join_session', { sessionId });
-    });
-    socket.on('session_ready', (payload: { interviewType?: string }) => {
+    };
+    const handleSessionReady = (payload: { interviewType?: string }) => {
       const t = payload?.interviewType ?? 'mixed';
+      sessionInterviewTypeRef.current = t;
+      aiSessionCtxRef.current.interviewType = t;
       setLiveCoding(t === 'live_coding');
-      setSessionInterviewType(t);
-    });
-    socket.on('disconnect', () => setStatus('disconnected'));
-    socket.on('audio_chunk_ack', () => {});
-    socket.on('ai_generating', () => {
+    };
+    const handleDisconnect = () => setStatus('disconnected');
+    const handleAudioChunkAck = () => {};
+    const handleAiGenerating = () => {
       setGenerating(true);
       setAiText('');
-    });
-    socket.on('ai_token', (payload: unknown) => {
+    };
+    const handleAiToken = (payload: unknown) => {
       const token =
         typeof payload === 'string'
           ? payload
@@ -206,11 +211,11 @@ export const LiveSessionPanel: React.FC = () => {
             ? (payload as { token: string }).token
             : '';
       setAiText((prev) => prev + (token ?? ''));
-    });
-    socket.on('ai_complete', () => {
+    };
+    const handleAiComplete = () => {
       setGenerating(false);
-    });
-    socket.on('ai_error', (payload: unknown) => {
+    };
+    const handleAiError = (payload: unknown) => {
       setGenerating(false);
       const fallback = LIVE_SESSION_UI[simLangRef.current].aiErrorFallback;
       const msg =
@@ -218,18 +223,42 @@ export const LiveSessionPanel: React.FC = () => {
           ? (payload as { message: string }).message
           : fallback;
       setAiText((prev) => prev + '\n\n⚠ ' + msg);
-    });
-    socket.on('question_detected', ({ text }: { text: string }) => {
+    };
+    const handleQuestionDetected = ({ text }: { text: string }) => {
       const q = (text || '').trim();
       if (q) {
         setPreguntaActual(q);
         setLiveTranscript(q);
         liveTranscriptRef.current = q;
       }
-    });
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('session_ready', handleSessionReady);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('audio_chunk_ack', handleAudioChunkAck);
+    socket.on('ai_generating', handleAiGenerating);
+    socket.on('ai_token', handleAiToken);
+    socket.on('ai_complete', handleAiComplete);
+    socket.on('ai_error', handleAiError);
+    socket.on('question_detected', handleQuestionDetected);
 
     return () => {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      socket.off('connect', handleConnect);
+      socket.off('session_ready', handleSessionReady);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('audio_chunk_ack', handleAudioChunkAck);
+      socket.off('ai_generating', handleAiGenerating);
+      socket.off('ai_token', handleAiToken);
+      socket.off('ai_complete', handleAiComplete);
+      socket.off('ai_error', handleAiError);
+      socket.off('question_detected', handleQuestionDetected);
       socket.disconnect();
+      if (socketRef.current === socket) socketRef.current = null;
     };
   }, [sessionId]);
 

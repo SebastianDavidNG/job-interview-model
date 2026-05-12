@@ -1,4 +1,5 @@
 import { type SimLang, SIM_LANGS, simulatedQuestionLanguage } from './simulatedQuestions';
+import { readSessionConfigStorage } from './storageKeys';
 
 export type { SimLang };
 
@@ -68,7 +69,7 @@ export type StealthViewerUi = {
 
 export function viewerUiLanguage(): SimLang {
   try {
-    const raw = localStorage.getItem('ip_config');
+    const raw = readSessionConfigStorage();
     if (raw) {
       const cfg = JSON.parse(raw) as {
         uiLocale?: string;

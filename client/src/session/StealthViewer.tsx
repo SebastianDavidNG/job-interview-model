@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { SERVER_URL } from '../lib/config';
+import { readSessionConfigStorage } from './storageKeys';
 import { STEALTH_VIEWER_UI, viewerUiLanguage } from './sessionUiI18n';
 
-type HistoryEntry = { question: string; response: string };
+type HistoryEntry = { id: string; question: string; response: string };
+
+function createHistoryId(): string {
+  return `hist_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 /** Same device may have wizard config; helps AI language when secondary tab has no server session merge. */
 function aiContextFromStorage(): {
@@ -13,7 +18,7 @@ function aiContextFromStorage(): {
   interviewType?: string;
 } {
   try {
-    const raw = localStorage.getItem('ip_config');
+    const raw = readSessionConfigStorage();
     if (!raw) return {};
     const cfg = JSON.parse(raw) as {
       responseLanguage?: string;
@@ -78,6 +83,7 @@ export const StealthViewer: React.FC = () => {
 
   const connect = (id: string) => {
     if (!id) return;
+    socket?.disconnect();
     sessionTypeSyncedRef.current = false;
     const v = STEALTH_VIEWER_UI[viewerUiLanguage()];
     setSessionId(id);
@@ -150,7 +156,10 @@ export const StealthViewer: React.FC = () => {
     const vv = STEALTH_VIEWER_UI[viewerUiLanguage()];
     setStatusText(`${vv.connectedPrefix} ${sessionId}`);
     setResponse(full);
-    setHistory((prev) => [{ question: lastPromptRef.current || transcript, response: full }, ...prev]);
+    setHistory((prev) => [
+      { id: createHistoryId(), question: lastPromptRef.current || transcript, response: full },
+      ...prev,
+    ]);
   };
 
   const startDemo = () => {
@@ -201,6 +210,12 @@ export const StealthViewer: React.FC = () => {
   };
 
   const fontClass = ['small', '', 'large', 'xl'][fontLevel] || '';
+
+  useEffect(() => {
+    return () => {
+      socket?.disconnect();
+    };
+  }, [socket]);
 
   if (mode === 'connect') {
     return (
@@ -275,8 +290,7 @@ export const StealthViewer: React.FC = () => {
               fontSize: 22,
               color: '#e8ffe4',
               textAlign: 'center',
-              letterSpacing: '0.25em',
-              outline: 'none'
+              letterSpacing: '0.25em'
             }}
           />
           <button
@@ -516,9 +530,18 @@ export const StealthViewer: React.FC = () => {
 
       {historyOpen && (
         <>
-          <div
+          <button
+            type="button"
+            aria-label="Close history"
             onClick={() => setHistoryOpen(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)' }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.5)',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer'
+            }}
           />
           <div
             style={{
@@ -571,9 +594,9 @@ export const StealthViewer: React.FC = () => {
                   {vt.historyEmpty}
                 </div>
               )}
-              {history.map((h, idx) => (
+              {history.map((h) => (
                 <div
-                  key={idx}
+                  key={h.id}
                   style={{ paddingBottom: 12, borderBottom: '1px solid #1a1a1a' }}
                 >
                   <div style={{ fontSize: 11, color: '#6ab0f5', marginBottom: 6, lineHeight: 1.5 }}>
